@@ -1,0 +1,6 @@
+name = Data base api
+description = Fournir des principaux action sur une tabe
+core = 7.x
+version = "7.x-1"
+project = "Sofiene"
+package = Sofiene

@@ -1,0 +1,122 @@
+<?php
+
+/**
+ * chargement d'un ligne à partir d'une table
+ */
+function db_api_load($criteres, $table) {
+  if (!is_array($criteres)) {
+    $primary_key = db_api_primary_key($table);
+    $query = db_select($table, 't');
+    $query->fields('t');
+    $query->condition("t.$primary_key", $criteres);
+  } else {
+    $query = db_select($table, 't');
+    $query->fields('t');
+    foreach ($criteres as $key => $value) {
+      $query->condition("t.$key", $value);
+    }
+  }
+  $object = $query->execute()->fetchObject();
+  if ($object) {
+    module_invoke_all('db_api_load', $object, $table);
+  }
+  return $object;
+}
+
+/**
+ * enregistrement de données
+ */
+function db_api_save($record, $table) {
+  global $language;
+  $primary_key = db_api_primary_key($table);
+  $describ = db_api_describe($table);
+  $fields = array();
+  if (!empty($record->{$primary_key})) {
+    $query = db_update($table, array('return' => Database::RETURN_AFFECTED));
+    $query->condition($primary_key, $record->{$primary_key});
+    $status = 'update';
+  } else {
+    $query = db_insert($table);
+    $status = 'insert';
+  }
+  foreach ($describ as $field) {
+    if (isset($record->{$field})) {
+      $fields[$field] = $record->{$field};
+    }
+  }
+  $query->fields($fields);
+  $id = $query->execute();
+  if ($return = db_api_load($id, $table)) {
+    $record->{$primary_key} = $return->{$primary_key};
+  }
+  module_invoke_all('db_api_' . $status, $record, $table);
+}
+
+/**
+ * retourne le nom du champ clé primaire
+ */
+function db_api_primary_key($table) {
+  global $databases;
+  $table = $databases['default']['default']['prefix'] . $table;
+  $query = db_query("SHOW KEYS FROM $table WHERE Key_name = 'PRIMARY'");
+  $infos = $query->fetchAll();
+  if (!empty($infos)) {
+    $info = array_shift($infos);
+    return $info->Column_name;
+  }
+  return NULL;
+}
+
+/**
+ * Decribe table
+ */
+function db_api_describe($table) {
+  global $databases;
+  $table = $databases['default']['default']['prefix'] . $table;
+  $query = db_query("DESCRIBE $table");
+  $result = $query->fetchAll();
+  $columns = array();
+  foreach ($result as $field) {
+    $columns[] = $field->Field;
+  }
+  return $columns;
+}
+/**
+ * load entries with some condition
+ */
+function db_api_load_multiple($ids = array(), $criteres = array(), $table) {
+  global $databases;
+  $table = $databases['default']['default']['prefix'] . $table;
+  $return = array();
+  $primary_key = db_api_primary_key($table);
+  $query = db_select($table, 't')
+          ->fields('t', array($primary_key));
+  if (!empty($ids)) {
+    $query->condition("t.$primary_key", $ids, 'IN');
+  }
+  if (!empty($criteres)) {
+    foreach ($criteres as $key => $value) {
+      $query->condition("t.$key", $value);
+    }
+  }
+  $result = $query->execute()->fetchAll();
+  foreach ($result as $id) {
+    $return[] = db_api_load($id->{$primary_key}, $table);
+  }
+  return $return;
+}
+/**
+ * suppression d'une ligne d'une table quelconque
+ */
+function db_api_delete($record, $table) {
+  global $databases;
+  $table = $databases['default']['default']['prefix'] . $table;
+  $primary_key = db_api_primary_key($table);
+  if (!empty($record->{$primary_key})) {
+    db_delete($table)->condition($primary_key, $record->{$primary_key})->execute();
+    watchdog('Database API delete', t('Suppression de la ligne @line de la table', array('@line' => $record->{$primary_key}, '@table' => $table)));
+    module_invoke_all('db_api_delete' , $record, $table);
+  } else {
+    watchdog('Database API delete', t('La ligne @line de la table n\'a pas été supprimé ', array('@line' => $record->{$primary_key}, '@table' => $table)));
+  }
+}
